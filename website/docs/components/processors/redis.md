@@ -79,6 +79,15 @@ Returns the cardinality of a set, or `0` if the key does not exist.
 
 Adds a new member to a set. Returns `1` if the member was added.
 
+### `zcard`
+
+Returns the cardinality of a sorted set, or `0` if the key does not exist.
+
+### `zadd`
+
+Adds the specified member with the specified score to the sorted set stored at key, or creates the sorted set. 
+Data needs to contain the fields `score` with an int value and `member` with the data.
+
 ### `incrby`
 
 Increments the number stored at `key` by the message content. If the
@@ -339,7 +348,7 @@ The [operator](#operators) to apply.
 
 Type: `string`  
 Default: `"scard"`  
-Options: `scard`, `sadd`, `incrby`, `keys`.
+Options: `zcard`, `zadd`, `scard`, `sadd`, `incrby`, `keys`.
 
 ### `key`
 

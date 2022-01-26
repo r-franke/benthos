@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -44,13 +45,22 @@ Returns the cardinality of a set, or ` + "`0`" + ` if the key does not exist.
 
 Adds a new member to a set. Returns ` + "`1`" + ` if the member was added.
 
+### ` + "`zcard`" + `
+
+Returns the cardinality of a sorted set, or ` + "`0`" + ` if the key does not exist.
+
+### ` + "`zadd`" + `
+
+Adds the specified member with the specified score to the sorted set stored at key, or creates the sorted set. 
+Data needs to contain the fields ` + "`score`" + ` with an int value and ` + "`member`" + ` with the data.
+
 ### ` + "`incrby`" + `
 
 Increments the number stored at ` + "`key`" + ` by the message content. If the
 key does not exist, it is set to ` + "`0`" + ` before performing the operation.
 Returns the value of ` + "`key`" + ` after the increment.`,
 		FieldSpecs: bredis.ConfigDocs().Add(
-			docs.FieldCommon("operator", "The [operator](#operators) to apply.").HasOptions("scard", "sadd", "incrby", "keys"),
+			docs.FieldCommon("operator", "The [operator](#operators) to apply.").HasOptions("zcard", "zadd", "scard", "sadd", "incrby", "keys"),
 			docs.FieldCommon("key", "A key to use for the target operator.").IsInterpolated(),
 			docs.FieldAdvanced("retries", "The maximum number of retries before abandoning a request."),
 			docs.FieldAdvanced("retry_period", "The time to wait before consecutive retry attempts."),
@@ -274,6 +284,55 @@ func newRedisSAddOperator() redisOperator {
 	}
 }
 
+func newRedisZCardOperator() redisOperator {
+	return func(r *Redis, key string, part types.Part) error {
+		res, err := r.client.ZCard(key).Result()
+
+		for i := 0; i <= r.conf.Redis.Retries && err != nil; i++ {
+			r.log.Errorf("ZCard command failed: %v\n", err)
+			<-time.After(r.retryPeriod)
+			r.mRedisRetry.Incr(1)
+			res, err = r.client.SCard(key).Result()
+		}
+		if err != nil {
+			return err
+		}
+
+		part.Set(strconv.AppendInt(nil, res, 10))
+		return nil
+	}
+}
+
+func newRedisZAddOperator() redisOperator {
+	return func(r *Redis, key string, part types.Part) error {
+		z := redis.Z{}
+		err := json.Unmarshal(part.Get(), &z)
+		if err != nil {
+			return err
+		}
+
+		z.Member, err = json.Marshal(z.Member)
+		if err != nil {
+			return err
+		}
+
+		res, err := r.client.ZAdd(key, &z).Result()
+
+		for i := 0; i <= r.conf.Redis.Retries && err != nil; i++ {
+			r.log.Errorf("ZAdd command failed: %v\n", err)
+			<-time.After(r.retryPeriod)
+			r.mRedisRetry.Incr(1)
+			res, err = r.client.ZAdd(key, &z).Result()
+		}
+		if err != nil {
+			return err
+		}
+
+		part.Set(strconv.AppendInt(nil, res, 10))
+		return nil
+	}
+}
+
 func newRedisIncrByOperator() redisOperator {
 	return func(r *Redis, key string, part types.Part) error {
 		valueInt, err := strconv.Atoi(string(part.Get()))
@@ -305,6 +364,10 @@ func getRedisOperator(opStr string) (redisOperator, error) {
 		return newRedisSAddOperator(), nil
 	case "scard":
 		return newRedisSCardOperator(), nil
+	case "zadd":
+		return newRedisZAddOperator(), nil
+	case "zcard":
+		return newRedisZCardOperator(), nil
 	case "incrby":
 		return newRedisIncrByOperator(), nil
 	}

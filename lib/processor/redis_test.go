@@ -74,6 +74,12 @@ func TestRedisIntegration(t *testing.T) {
 	t.Run("testRedisSCard", func(t *testing.T) {
 		testRedisSCard(t, client, urlStr)
 	})
+	t.Run("testRedisZAdd", func(t *testing.T) {
+		testRedisZAdd(t, client, urlStr)
+	})
+	t.Run("testRedisZCard", func(t *testing.T) {
+		testRedisZCard(t, client, urlStr)
+	})
 	t.Run("testRedisIncrby", func(t *testing.T) {
 		testRedisIncrby(t, client, urlStr)
 	})
@@ -222,6 +228,112 @@ func testRedisSCard(t *testing.T, client *redis.Client, url string) {
 	exp := [][]byte{
 		[]byte(`0`),
 		[]byte(`2`),
+		[]byte(`3`),
+	}
+	if act := message.GetAllBytes(resMsgs[0]); !reflect.DeepEqual(exp, act) {
+		t.Fatalf("Wrong result: %s != %s", act, exp)
+	}
+}
+
+func testRedisZAdd(t *testing.T, client *redis.Client, url string) {
+	conf := NewConfig()
+	conf.Type = TypeRedis
+	conf.Redis.URL = url
+	conf.Redis.Operator = "zadd"
+	conf.Redis.Key = "${! meta(\"key\") }"
+
+	r, err := NewRedis(conf, nil, log.Noop(), metrics.Noop())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := message.New([][]byte{
+		[]byte(`{"score": 1, "member": "foo"}`),
+		[]byte(`{"score": 2, "member": "bar"}`),
+		[]byte(`{"score": 3, "member": "baz"}`),
+		[]byte(`{"score": 1, "member": "baz"}`),
+		[]byte(`{"score": 1, "member": "buz"}`),
+		[]byte(`{"score": 2, "member": "bev"}`),
+	})
+	msg.Get(0).Metadata().Set("key", "foo1")
+	msg.Get(1).Metadata().Set("key", "foo1")
+	msg.Get(2).Metadata().Set("key", "foo1")
+	msg.Get(3).Metadata().Set("key", "foo2")
+	msg.Get(4).Metadata().Set("key", "foo2")
+	msg.Get(5).Metadata().Set("key", "foo2")
+
+	resMsgs, response := r.ProcessMessage(msg)
+	if response != nil {
+		if response.Error() != nil {
+			t.Fatal(response.Error())
+		}
+		t.Fatal("Expected nil response")
+	}
+	if len(resMsgs) != 1 {
+		t.Fatalf("Wrong resulting msgs: %v != %v", len(resMsgs), 1)
+	}
+
+	exp := [][]byte{
+		[]byte(`1`),
+		[]byte(`1`),
+		[]byte(`1`),
+		[]byte(`1`),
+		[]byte(`1`),
+		[]byte(`1`),
+	}
+	if act := message.GetAllBytes(resMsgs[0]); !reflect.DeepEqual(exp, act) {
+		t.Fatalf("Wrong result: %s != %s", act, exp)
+	}
+
+	res, err := client.ZCard("foo1").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp, act := 3, int(res); exp != act {
+		t.Errorf("Wrong cardinality of set 1: %v != %v", act, exp)
+	}
+	res, err = client.ZCard("foo2").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp, act := 3, int(res); exp != act {
+		t.Errorf("Wrong cardinality of set 2: %v != %v", act, exp)
+	}
+}
+
+func testRedisZCard(t *testing.T, client *redis.Client, url string) {
+	// WARNING: Relies on testRedisSAdd succeeding.
+	conf := NewConfig()
+	conf.Type = TypeRedis
+	conf.Redis.URL = url
+	conf.Redis.Operator = "zcard"
+	conf.Redis.Key = "${!content()}"
+
+	r, err := NewRedis(conf, nil, log.Noop(), metrics.Noop())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := message.New([][]byte{
+		[]byte(`doesntexist`),
+		[]byte(`foo1`),
+		[]byte(`foo2`),
+	})
+
+	resMsgs, response := r.ProcessMessage(msg)
+	if response != nil {
+		if response.Error() != nil {
+			t.Fatal(response.Error())
+		}
+		t.Fatal("Expected nil response")
+	}
+	if len(resMsgs) != 1 {
+		t.Fatalf("Wrong resulting msgs: %v != %v", len(resMsgs), 1)
+	}
+
+	exp := [][]byte{
+		[]byte(`0`),
+		[]byte(`3`),
 		[]byte(`3`),
 	}
 	if act := message.GetAllBytes(resMsgs[0]); !reflect.DeepEqual(exp, act) {
